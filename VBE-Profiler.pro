@@ -13,7 +13,9 @@ INCLUDEPATH += include src
 
 include(../VBE/VBE.pri)
 include(../VBE-Scenegraph/VBE-Scenegraph.pri)
-include(../common.pri)
+
+LIBS += -lGLEW -lGL -lSDL2
+QMAKE_CXXFLAGS += -std=c++0x -fno-exceptions
 
 OTHER_FILES += \
     VBE-Profiler.pri
