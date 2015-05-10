@@ -33,18 +33,18 @@ class Profiler : public GameObject {
 					: parent(parent), name(name), desc(desc) {start();}
 				~Node() {}
 
-				float getTime() const {return time;}
-				void start() {time0 = Clock::getSeconds();}
-				void stop() {time1 = Clock::getSeconds(); time += time1-time0; time0 = 0.0f;}
+				float getTime() const {return totalTime;}
+				void start() {timeStart = Clock::getSeconds();}
+				void stop() {timeEnd = Clock::getSeconds(); totalTime += timeEnd-timeStart; timeStart = 0.0f;}
 
 				Node* parent = nullptr;
 				std::list<Node> children;
 				std::string name = std::string("invalid");
 				std::string desc = std::string("invalid");
 			private:
-				float time = 0.0f;
-				float time0 = 0.0f;
-				float time1 = 0.0f;
+				float totalTime = 0.0f;
+				float timeStart = 0.0f;
+				float timeEnd = 0.0f;
 		};
 
 		class Watcher final : public GameObject {
@@ -52,6 +52,7 @@ class Profiler : public GameObject {
 				Watcher();
 				~Watcher();
 
+				void fixedUpdate(float deltaTime);
 				void update(float deltaTime);
 				void draw() const;
 		};
@@ -72,10 +73,14 @@ class Profiler : public GameObject {
 		//callback
 		void setClip(const char* text) const;
 
-		void update(float deltaTime) final;
-		void draw() const final;
+		void fixedUpdate(float deltaTime) final override;
+		void update(float deltaTime) final override;
+		void draw() const final override;
 		void processNodeAverage(const Node& n);
-		void resetTree();
+		void resetTreeDraw() const;
+		void resetTreeUpdate() const;
+		void resetTreeFixed() const;
+		void resetTreeSwap() const;
 		void setImguiIO(float deltaTime) const;
 		void timeWindow() const;
 		void logWindow() const;
@@ -95,8 +100,12 @@ class Profiler : public GameObject {
 		float sampleRate = 0.5f;
 		float windowAlpha = 0.9f;
 		vec2ui wsize = vec2ui(0,0);
-		Node tree;
-		Node* currentNode = nullptr;
+		mutable Node treeUpdate;
+		mutable Node treeDraw;
+		mutable Node treeFixed;
+		mutable Node treeSwap;
+		mutable Node treeWhole;
+		mutable Node* currentNode = nullptr;
 		std::map<std::string, Historial> hist;
 		mutable Mesh model;
 		Texture2D tex;

@@ -81,10 +81,6 @@ Profiler::Profiler(std::string vertShader, std::string fragShader) {
 	//add watcher
 	Watcher* w = new Watcher();
 	w->addTo(this);
-
-	//set root node
-	currentNode = &tree;
-	pushMark("invalid", "invalid");
 }
 
 Profiler::~Profiler() {
@@ -207,11 +203,19 @@ void Profiler::setClip(const char* text) const {
 	(void) text; //TODO
 }
 
+void Profiler::fixedUpdate(float deltaTime) {
+	(void) deltaTime;
+	popMark(); //fixed update
+}
+
 void Profiler::update(float deltaTime) {
-	//end last frame
-	popMark();//Update
-	popMark();//Whole frame
-	processNodeAverage(tree);
+	popMark(); //update
+	treeWhole.stop();
+	processNodeAverage(treeSwap);
+	processNodeAverage(treeDraw);
+	processNodeAverage(treeFixed);
+	processNodeAverage(treeUpdate);
+	processNodeAverage(treeWhole);
 	if(timePassed >= sampleRate) {
 		//update history
 		timeAvgOffset = (timeAvgOffset + 1) % PROFILER_HIST_SIZE;
@@ -242,16 +246,16 @@ void Profiler::update(float deltaTime) {
 		//ImGui::ShowTestWindow();
 	}
 	//prepare for next frame
+	treeWhole = Node("Whole frame", "Time spent waiting for the GPU to finish all pending jobs", nullptr);
+	resetTreeDraw();
 	frameCount++;
 	timePassed += deltaTime;
-	resetTree();
-	pushMark("Draw", "Time spent issuing GL commands and drawing stuff on the screen");
 }
 
 void Profiler::draw() const {
 	ImGui::Render();
 	popMark(); //draw
-	pushMark("Swap", "Time spent waiting for the GPU while commands/waits are executed.");
+	resetTreeSwap();
 }
 
 void Profiler::processNodeAverage(const Profiler::Node& n) {
@@ -264,9 +268,24 @@ void Profiler::processNodeAverage(const Profiler::Node& n) {
 		processNodeAverage(child);
 }
 
-void Profiler::resetTree() {
-	tree = Node("Whole Frame", "Total frame time. Lower bound of 16.66 ms if V-Sync is on.", nullptr);
-	currentNode = &tree;
+void Profiler::resetTreeDraw() const {
+	treeDraw = Node("Draw", "Time spent issuing GL commands and drawing stuff on the screen", nullptr);
+	currentNode = &treeDraw;
+}
+
+void Profiler::resetTreeUpdate() const {
+	treeUpdate = Node("Update", "Time spent updating variable game logic", nullptr);
+	currentNode = &treeUpdate;
+}
+
+void Profiler::resetTreeFixed() const {
+	treeFixed = Node("Fixed Update", "Time spent updating fixed game logic", nullptr);
+	currentNode = &treeFixed;
+}
+
+void Profiler::resetTreeSwap() const {
+	treeSwap = Node("Swap", "Time spent waiting for the GPU to finish all pending jobs", nullptr);
+	currentNode = &treeSwap;
 }
 
 void Profiler::setImguiIO(float deltaTime) const {
@@ -290,7 +309,11 @@ void Profiler::timeWindow() const {
 	ImGui::Text("With V-Sync enabled, frame time will\nnot go below 16ms");
 	ImGui::Text("FPS: %i", FPS);
 	ImGui::Separator();
-	uiProcessNode(tree);
+	uiProcessNode(treeWhole);
+	uiProcessNode(treeFixed);
+	uiProcessNode(treeUpdate);
+	uiProcessNode(treeDraw);
+	uiProcessNode(treeSwap);
 	ImGui::End();
 }
 
@@ -330,10 +353,16 @@ Profiler::Watcher::Watcher() {
 Profiler::Watcher::~Watcher() {
 }
 
+void Profiler::Watcher::fixedUpdate(float deltaTime) {
+	(void) deltaTime;
+	if(Profiler::instance->currentNode != nullptr && Profiler::instance->currentNode->name == "Swap") popMark(); //swap
+	Profiler::instance->resetTreeFixed();
+}
+
 void Profiler::Watcher::update(float deltaTime) {
 	(void) deltaTime;
-	popMark(); //swap
-	pushMark("Update", "Time spent updating game logic");
+	if(Profiler::instance->currentNode != nullptr && Profiler::instance->currentNode->name == "Swap") popMark(); //swap
+	Profiler::instance->resetTreeUpdate();
 }
 
 void Profiler::Watcher::draw() const {
