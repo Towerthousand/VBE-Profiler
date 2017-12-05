@@ -154,7 +154,7 @@ const char* Profiler::getClipHandle() {
 }
 
 void Profiler::setClipHandle(const char* text) {
-    instance->setClipHandle(text);
+    instance->setClip(text);
 }
 
 void Profiler::render(ImDrawList** const cmd_lists, int cmd_lists_count) const {
