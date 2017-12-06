@@ -50,9 +50,7 @@ Profiler::Profiler(std::string vertShader, std::string fragShader) {
     VBE_ASSERT(instance == nullptr, "Created two profilers");
     instance = this;
 
-    //font texture
-    tex = Texture2D::load(Storage::openAsset("debugFont.png"));
-    tex.setFilter(GL_NEAREST, GL_NEAREST);
+    // Pick program
     program = ShaderProgram(vertShader, fragShader);
 
     //will update and draw last of all
@@ -67,7 +65,7 @@ Profiler::Profiler(std::string vertShader, std::string fragShader) {
     };
 
     Vertex::Format format(elems);
-    model = Mesh(format, MeshSeparate::STREAM);
+    model = MeshIndexed(format, MeshIndexed::STREAM);
 
     //setup ui
     ImGuiIO& io = ImGui::GetIO();
@@ -78,6 +76,17 @@ Profiler::Profiler(std::string vertShader, std::string fragShader) {
     io.SetClipboardTextFn = &Profiler::setClipHandle;
     io.GetClipboardTextFn = &Profiler::getClipHandle;
     io.IniSavingRate = -1.0f; //disable ini
+    io.ClipboardUserData = NULL;
+
+    // Build texture atlas
+    unsigned char* pixels;
+    int width, height;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+    tex = Texture2D(vec2ui(width, height), TextureFormat::RGBA);
+    tex.setFilter(GL_LINEAR, GL_LINEAR);
+    tex.setData(pixels, TextureFormat::RGBA, TextureFormat::UNSIGNED_BYTE);
+    //glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    io.Fonts->TexID = (void *)(intptr_t)tex.getHandle();
 
     //add watcher
     Watcher* w = new Watcher();
@@ -145,20 +154,22 @@ bool Profiler::isShown() {
     return (instance != nullptr && instance->showProfiler);
 }
 
-void Profiler::renderHandle(ImDrawList** const cmd_lists, int cmd_lists_count) {
-    instance->render(cmd_lists, cmd_lists_count);
+void Profiler::renderHandle(ImDrawData* data) {
+    instance->render(data);
 }
 
-const char* Profiler::getClipHandle() {
+const char* Profiler::getClipHandle(void* user_data) {
+    (void) user_data;
     return instance->getClip();
 }
 
-void Profiler::setClipHandle(const char* text) {
+void Profiler::setClipHandle(void* user_data, const char* text) {
+    (void) user_data;
     instance->setClip(text);
 }
 
-void Profiler::render(ImDrawList** const cmd_lists, int cmd_lists_count) const {
-    if (cmd_lists_count == 0)
+void Profiler::render(const ImDrawData* drawData) const {
+    if (drawData->CmdListsCount == 0)
         return;
 
     GL_ASSERT(glDisable(GL_CULL_FACE));
@@ -175,16 +186,17 @@ void Profiler::render(ImDrawList** const cmd_lists, int cmd_lists_count) const {
     program.uniform("fontTex")->set(&tex);
 
     // Render command lists
-    for (int n = 0; n < cmd_lists_count; n++) {
-        const ImDrawList* cmd_list = cmd_lists[n];
-        model.setVertexData((const unsigned char*)cmd_list->vtx_buffer.begin(), cmd_list->vtx_buffer.size());
+    for (int n = 0; n < drawData->CmdListsCount; n++) {
+        const ImDrawList* cmd_list = drawData->CmdLists[n];
+        unsigned int idx_buffer_offset = 0;
+        model.setVertexData((const unsigned char*)cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.size());
+        model.setIndexData(cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size);
 
-        int vtx_offset = 0;
-        const ImDrawCmd* pcmd_end = cmd_list->commands.end();
-        for (const ImDrawCmd* pcmd = cmd_list->commands.begin(); pcmd != pcmd_end; pcmd++) {
-            GL_ASSERT(glScissor((int)pcmd->clip_rect.x, (int)(height - pcmd->clip_rect.w), (int)(pcmd->clip_rect.z - pcmd->clip_rect.x), (int)(pcmd->clip_rect.w - pcmd->clip_rect.y)));
-            model.draw(program, vtx_offset, pcmd->vtx_count);
-            vtx_offset += pcmd->vtx_count;
+        for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.Size; cmd_i++) {
+            const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
+            GL_ASSERT(glScissor((int)pcmd->ClipRect.x, (int)(height - pcmd->ClipRect.w), (int)(pcmd->ClipRect.z - pcmd->ClipRect.x), (int)(pcmd->ClipRect.w - pcmd->ClipRect.y)));
+            model.draw(program, idx_buffer_offset, pcmd->ElemCount);
+            idx_buffer_offset += pcmd->ElemCount;
         }
     }
     GL_ASSERT(glDisable(GL_SCISSOR_TEST));
@@ -240,7 +252,6 @@ void Profiler::update(float deltaTime) {
     ImGui::NewFrame();
     if(showProfiler) {
         wsize = Window::getInstance()->getSize();
-        ImGui::GetStyle().TreeNodeSpacing = 10;
         ImGui::GetStyle().WindowRounding = 6;
         ImGui::GetStyle().FrameRounding = 6;
         if(showTime) timeWindow();
@@ -314,7 +325,7 @@ void Profiler::setImguiIO(float deltaTime) const {
 
 void Profiler::timeWindow() const {
     ImGui::Begin("Frame Times", nullptr, ImVec2(0.23f*wsize.x,0.55f*wsize.y), windowAlpha);
-    ImGui::SetWindowPos(ImVec2(0.025f*wsize.x, 0.05f*wsize.y), ImGuiSetCondition_FirstUseEver);
+    ImGui::SetWindowPos(ImVec2(0.025f*wsize.x, 0.05f*wsize.y), ImGuiCond_FirstUseEver);
     ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.65f);
     ImGui::Text("With V-Sync enabled, frame time will\nnot go below 16ms");
     ImGui::Text("FPS: %i", FPS);
@@ -330,7 +341,7 @@ void Profiler::timeWindow() const {
 void Profiler::logWindow() const {
     std::string log = Log::getContents();
     ImGui::Begin("Log", nullptr, ImVec2(0.34f*wsize.x, 0.31f*wsize.y), windowAlpha);
-    ImGui::SetWindowPos(ImVec2(0.025f*wsize.x, 0.61f*wsize.y), ImGuiSetCondition_FirstUseEver);
+    ImGui::SetWindowPos(ImVec2(0.025f*wsize.x, 0.61f*wsize.y), ImGuiCond_FirstUseEver);
     ImGui::BeginChild("Log");
     ImGui::TextUnformatted(&(*log.begin()), &(*log.end()));
     ImGui::EndChild();
@@ -343,12 +354,12 @@ void Profiler::uiProcessNode(const Profiler::Node& n) const {
     std::string tag = std::string(n.name + " Time (curr: ") + currTime + " ms)";
     float max = 0.0f;
     for(int i = 0; i < PROFILER_HIST_SIZE; ++i) max = std::max(max, nHist.past[i]);
-    if (ImGui::TreeNode((void*)nHist.id, tag.c_str())) {
+    if (ImGui::TreeNode((void*)nHist.id, "%s", tag.c_str())) {
         ImGui::PlotLines(std::string(toString(max, 1, 1, false) + "ms\n\n\n\n0 ms").c_str(), nHist.past, PROFILER_HIST_SIZE, timeAvgOffset, currTime.c_str(), 0.00f, max, vec2f(350,60));
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("");
             ImGui::BeginTooltip();
-            ImGui::Text(n.desc.c_str());
+            ImGui::Text("%s", n.desc.c_str());
             ImGui::EndTooltip();
         }
         for(const Node& child : n.children)

@@ -1,6 +1,6 @@
 #ifndef PROFILER_HPP
 #define PROFILER_HPP
-#include <VBE-Profiler/profiler/imgui.hpp>
+#include <VBE-Profiler/profiler/imgui.h>
 #include <VBE/VBE.hpp>
 #include <VBE-Scenegraph/VBE-Scenegraph.hpp>
 
@@ -23,7 +23,7 @@ class Profiler : public GameObject {
         static void setShowTime(bool shown);
 
     protected:
-        virtual void render(ImDrawList** const cmd_lists, int cmd_lists_count) const;
+        virtual void render(const ImDrawData* data) const;
         virtual void renderCustomInterface() const;
 
     private:
@@ -64,9 +64,9 @@ class Profiler : public GameObject {
                 float past[PROFILER_HIST_SIZE];
         };
 
-        static void renderHandle(ImDrawList** const cmd_lists, int cmd_lists_count);
-        static const char*getClipHandle();
-        static void setClipHandle(const char* text);
+        static void renderHandle(ImDrawData* data);
+        static const char* getClipHandle(void* user_data);
+        static void setClipHandle(void* user_data, const char* text);
 
         //callback
         const char* getClip() const;
@@ -108,7 +108,7 @@ class Profiler : public GameObject {
         mutable Node treeWhole;
         mutable Node* currentNode = nullptr;
         std::map<std::string, Historial> hist;
-        mutable Mesh model;
+        mutable MeshIndexed model;
         Texture2D tex;
         ShaderProgram program;
         mutable std::string clip = "";
